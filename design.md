@@ -1,4 +1,4 @@
-# Design Document: Public CV & License Document Upload & Delivery Service (Version 2.0)
+# Design Document: Document Upload & Delivery Service (Version 2.0)
 
 ---
 
