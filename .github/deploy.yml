@@ -1,0 +1,69 @@
+name: CI/CD Deploy to Azure Functions
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.ACR_NAME }}.azurecr.io/cdr-service:latest
+      RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+      PLAN_NAME: ${{ secrets.PLAN_NAME }}
+      FUNCAPP_NAME: ${{ secrets.FUNCAPP_NAME }}
+      STORAGE_ACCOUNT: ${{ secrets.STORAGE_ACCOUNT }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Azure CLI
+        uses: azure/cli@v2
+        with:
+          az-version: '2.57.0'
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
+
+      - name: Deploy Function App (Premium plan)
+        run: |
+          # Create or update the Function App with the custom image
+          az functionapp create \
+            --resource-group $RESOURCE_GROUP \
+            --name $FUNCAPP_NAME \
+            --storage-account $STORAGE_ACCOUNT \
+            --plan $PLAN_NAME \
+            --deployment-container-image-name $IMAGE_NAME \
+            --runtime custom \
+            --functions-version 4 || \
+          az functionapp update \
+            --resource-group $RESOURCE_GROUP \
+            --name $FUNCAPP_NAME \
+            --set "siteConfig.linuxFxVersion=DOCKER||$IMAGE_NAME"
+
+      - name: Verify deployment (Health check)
+        run: |
+          # Wait a few seconds for the app to start
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://${FUNCAPP_NAME}.azurewebsites.net/api/health)
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
