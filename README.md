@@ -1,4 +1,4 @@
-# CV/License Upload Pipeline – Azure Functions (Premium/Dedicated)
+# Upload Pipeline – Azure Functions (Premium/Dedicated)
 
 ## Overview
 
