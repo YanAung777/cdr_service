@@ -1,4 +1,4 @@
-# Design Document: Public CV & License Document Upload Pipeline
+# Design Document: Document Upload Pipeline
 
 ## 1. Purpose
 
