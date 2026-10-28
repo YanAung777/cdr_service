@@ -1,0 +1,120 @@
+openapi: 3.0.3
+info:
+  title: CV/License Upload API
+  description: >
+    Public-facing API for uploading CV and license documents, checking malware
+    scan status, and downloading a document once it clears Defender for
+    Storage's malware scan (and, once built, CDR). Uploads and downloads are
+    proxied through Azure Functions — there are no client-facing SAS tokens in
+    this revision, per the enterprise File Upload Security Standard. Import
+    this into APIM against the Function App's base URL as the backend.
+  version: "2.0"
+paths:
+  /uploads:
+    post:
+      operationId: uploadDocument
+      summary: Upload a document as multipart/form-data
+      description: >
+        Send a multipart/form-data body with exactly one file part named
+        "file". The part's filename is used for the extension allow-list
+        check, the audit log, and the eventual download's
+        Content-Disposition — never as the stored blob name. The part's own
+        Content-Type header is read but not trusted; the server verifies the
+        actual content with libmagic regardless of what's claimed. APIM
+        should enforce the overall request-body size ceiling; this endpoint
+        separately enforces the per-file limit server-side against the
+        actual extracted file bytes.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+              additionalProperties: false
+      responses:
+        "202":
+          description: Accepted for scanning
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blobId: { type: string }
+                  status: { type: string, example: pending }
+        "400":
+          description: Empty file, missing/duplicate "file" part, or malformed multipart body
+        "413":
+          description: File exceeds the per-file size limit
+        "415":
+          description: Body isn't multipart/form-data, or the extension isn't on the allow-list
+        "422":
+          description: File content does not match its claimed extension (magic-byte check failed)
+  /uploads/{blobId}/status:
+    get:
+      operationId: getUploadStatus
+      summary: Poll the malware-scan status of an uploaded document
+      description: >
+        Owner-only: the caller must be the same authenticated identity that
+        uploaded this document. A missing blobId and someone else's blobId
+        are deliberately distinguished (404 vs 403) — an authenticated
+        caller learns whether a blobId was ever used, but not its status if
+        it isn't theirs. An unauthenticated caller learns neither.
+      parameters:
+        - name: blobId
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+      responses:
+        "200":
+          description: Current status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blobId: { type: string }
+                  status:
+                    type: string
+                    enum: [pending, clean, malicious, scan_error, cdr_failed]
+        "400":
+          description: Invalid blobId
+        "401":
+          description: No authenticated caller identity forwarded by APIM
+        "403":
+          description: blobId exists but belongs to a different uploader
+        "404":
+          description: No document ever uploaded with this blobId
+  /documents/{blobId}/download:
+    get:
+      operationId: downloadDocument
+      summary: Download a cleared document
+      description: >
+        Owner-only, re-checked on every call: the caller must be the same
+        authenticated identity that uploaded this document. Streams the file
+        through the Function itself (not a redirect to storage). Sets
+        Content-Disposition: attachment, X-Content-Type-Options: nosniff, and
+        a restrictive Content-Security-Policy on the response.
+      parameters:
+        - name: blobId
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+      responses:
+        "200":
+          description: File content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400":
+          description: Invalid blobId
+        "401":
+          description: No authenticated caller identity forwarded by APIM
+        "403":
+          description: blobId exists but belongs to a different uploader
+        "404":
+          description: Document not available — never existed, or owned by the caller but not yet clean/promoted (pending, rejected, and CDR-failed states are deliberately not distinguished here; use the status endpoint for that)
