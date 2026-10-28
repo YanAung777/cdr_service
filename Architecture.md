@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Allow the public website to accept CV and professional-license document uploads, store them in Azure Blob Storage, scan every upload for malware before it is ever exposed publicly, and provide a documented, auditable security posture around the whole pipeline.
+Allow the public website to accept document uploads, store them in Azure Blob Storage, scan every upload for malware before it is ever exposed publicly, and provide a documented, auditable security posture around the whole pipeline.
 
 ## 2. Scope
 
